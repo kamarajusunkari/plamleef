@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy: #0A1628;
+  --color-orange: #FF6B35;
+  --color-gold: #FFB347;
+  --color-success: #10B981;
+  --color-danger: #EF4444;
+  --color-warning: #F59E0B;
+  --color-info: #3B82F6;
+  --color-purple: #8B5CF6;
+  --color-bg: #F0F4FA;
+  --color-card: #FFFFFF;
+  --color-border: #E8EDF5;
+  --color-text: #1A2035;
+  --color-muted: #7A869A;
+
+  --font-sans: var(--font-dm-sans, "DM Sans", sans-serif);
+
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
+
+  --animate-pulse: pulse 2s infinite;
+  --animate-fadeIn: fadeIn 0.2s ease-out;
+  --animate-countUp: countUp 0.5s ease-out;
+
+  --keyframes-pulse-0: { opacity: 1 };
+  --keyframes-pulse-100: { opacity: 1 };
+  --keyframes-pulse-50: { opacity: 0.3 };
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes countUp {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.animate-countUp {
+  animation: countUp 0.5s ease-out;
+}
+
+.animate-pulse {
+  animation: pulse 2s infinite;
+}
+
+.shadow-card {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
+}
