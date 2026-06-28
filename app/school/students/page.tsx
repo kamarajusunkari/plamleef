@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import toast from "react-hot-toast";
 import {
-  Search, Plus, X, Loader2, Users, Star, CheckCircle,
+  Search, Plus, X, Loader2, Users, Star, CheckCircle, Upload,
   ChevronLeft, ChevronRight, ChevronDown, ArrowUpDown, Eye,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -202,6 +202,173 @@ function MoveClassModal({ isOpen, onClose, student, classes, onMoved }: MoveClas
   );
 }
 
+/* ── BulkImportModal ─────────────────────────────────────────────────────── */
+interface ParsedStudent { name: string; email: string; valid: boolean; error?: string; }
+interface BulkImportModalProps {
+  isOpen: boolean; onClose: () => void;
+  schoolId: string; classes: ClassOption[];
+  onComplete: () => void;
+}
+function BulkImportModal({ isOpen, onClose, schoolId, classes, onComplete }: BulkImportModalProps) {
+  const [classId, setClassId] = useState("");
+  const [csvText, setCsvText] = useState("");
+  const [preview, setPreview] = useState<ParsedStudent[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState<{current: number; total: number} | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  if (!isOpen) return null;
+
+  const parseCsv = (text: string): ParsedStudent[] => {
+    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) return [];
+    const result: ParsedStudent[] = [];
+    const startIdx = /^name/i.test(lines[0].split(",")[0]?.trim() ?? "") ? 1 : 0;
+    for (let i = startIdx; i < lines.length; i++) {
+      const parts = lines[i].split(",").map(p => p.trim());
+      const name = parts[0] ?? "";
+      const email = parts[1] ?? "";
+      const entry: ParsedStudent = { name, email, valid: true };
+      if (!name) { entry.valid = false; entry.error = "Name is required"; }
+      else if (!email) { entry.valid = false; entry.error = "Email is required"; }
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { entry.valid = false; entry.error = "Invalid email"; }
+      result.push(entry);
+    }
+    return result;
+  };
+
+  const handlePreview = () => {
+    const e: Record<string, string> = {};
+    if (!classId) e.classId = "Please select a class";
+    if (!csvText.trim()) e.csv = "Please enter student data";
+    if (Object.keys(e).length) { setErrors(e); return; }
+    setErrors({});
+    const parsed = parseCsv(csvText);
+    setPreview(parsed);
+    if (parsed.length === 0) { toast.error("No valid student data found"); setPreview(null); }
+  };
+
+  const handleSubmit = async () => {
+    if (!preview || preview.length === 0) return;
+    const invalid = preview.filter(p => !p.valid);
+    if (invalid.length > 0) { toast.error(`${invalid.length} entries have errors. Fix them first.`); return; }
+    setSaving(true);
+    setProgress({ current: 0, total: preview.length });
+    const results = { success: 0, fail: 0 };
+    for (let i = 0; i < preview.length; i++) {
+      const s = preview[i];
+      setProgress({ current: i + 1, total: preview.length });
+      try {
+        const res = await fetch("/api/admin/create-user", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: s.email.toLowerCase().trim(), name: s.name.trim(), role: "STUDENT", schoolId, classId, password: "Student@2025" }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed");
+        results.success++;
+      } catch { results.fail++; }
+    }
+    setSaving(false);
+    setProgress(null);
+    if (results.fail === 0) {
+      toast.success(`✓ ${results.success} students imported successfully`);
+      setClassId(""); setCsvText(""); setPreview(null); setErrors({});
+      onClose();
+      onComplete();
+    } else {
+      toast.error(`${results.success} succeeded, ${results.fail} failed`);
+    }
+  };
+
+  const validCount = preview ? preview.filter(p => p.valid).length : 0;
+  const invalidCount = preview ? preview.length - validCount : 0;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5 shrink-0">
+          <h2 className="text-base font-bold text-[#1A2035]">Bulk Import Students</h2>
+          <button onClick={onClose} className="text-[#7A869A] hover:text-[#1A2035]"><X size={18}/></button>
+        </div>
+        <div className="space-y-3 shrink-0">
+          <div>
+            <label className="text-xs font-semibold text-[#7A869A] block mb-1">Class *</label>
+            <div className="relative">
+              <select value={classId} onChange={e => setClassId(e.target.value)}
+                className="w-full h-10 pl-3 pr-8 rounded-xl border border-[#E8EDF5] bg-[#F8FAFC] text-sm text-[#1A2035] outline-none focus:border-[#FF6B35] appearance-none">
+                <option value="">— Select class —</option>
+                {classes.map(c => <option key={c.id} value={c.id}>{c.name}-{c.section}</option>)}
+              </select>
+              <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#7A869A] pointer-events-none"/>
+            </div>
+            {errors.classId && <p className="text-xs text-red-500 mt-1">{errors.classId}</p>}
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-[#7A869A] block mb-1">Student Data (CSV) *</label>
+            <textarea value={csvText} onChange={e => { setCsvText(e.target.value); setPreview(null); }}
+              placeholder={"name,email\nAarav Sharma, aarav@school.com\nPriya Patel, priya@school.com"}
+              rows={5}
+              className="w-full px-3 py-2 rounded-xl border border-[#E8EDF5] bg-[#F8FAFC] text-sm text-[#1A2035] outline-none focus:border-[#FF6B35] resize-none font-mono"/>
+            <p className="text-[10px] text-[#7A869A] mt-1">One student per line. Format: <code className="bg-[#F0F4FA] px-1 rounded">name,email</code></p>
+            {errors.csv && <p className="text-xs text-red-500 mt-1">{errors.csv}</p>}
+          </div>
+        </div>
+        {preview && (
+          <div className="mt-4 flex-1 min-h-0 overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-[#7A869A]">
+                Preview ({validCount} valid{invalidCount > 0 ? `, ${invalidCount} with errors` : ""})
+              </span>
+            </div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-[#F0F4FA]">
+                  <th className="text-left font-bold text-[#7A869A] uppercase tracking-wider px-2 py-1.5">#</th>
+                  <th className="text-left font-bold text-[#7A869A] uppercase tracking-wider px-2 py-1.5">Name</th>
+                  <th className="text-left font-bold text-[#7A869A] uppercase tracking-wider px-2 py-1.5">Email</th>
+                  <th className="text-left font-bold text-[#7A869A] uppercase tracking-wider px-2 py-1.5">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#F8FAFC]">
+                {preview.map((s, i) => (
+                  <tr key={i} className={s.valid ? "" : "bg-red-50"}>
+                    <td className="px-2 py-1.5 text-[#7A869A]">{i + 1}</td>
+                    <td className="px-2 py-1.5 text-[#1A2035] font-medium">{s.name || "—"}</td>
+                    <td className="px-2 py-1.5 text-[#1A2035]">{s.email || "—"}</td>
+                    <td className="px-2 py-1.5">
+                      {s.valid ? <span className="text-green-600 font-medium">✓ Valid</span>
+                        : <span className="text-red-500">{s.error}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="flex gap-2 mt-4 shrink-0 border-t border-[#F0F4FA] pt-4">
+          <Button variant="ghost" className="flex-1" onClick={onClose} disabled={saving}>Cancel</Button>
+          {!preview ? (
+            <button onClick={handlePreview} disabled={saving}
+              className="flex-1 py-2 bg-[#3B82F6] text-white rounded-xl text-sm font-bold hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-1">
+              Preview
+            </button>
+          ) : (
+            <button onClick={handleSubmit} disabled={saving || validCount === 0}
+              className="flex-1 py-2 bg-[#FF6B35] text-white rounded-xl text-sm font-bold hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-1">
+              {saving ? (
+                <><Loader2 size={14} className="animate-spin"/> Importing {progress?.current}/{progress?.total}…</>
+              ) : (
+                <><Plus size={14}/> Import {validCount} Student{validCount !== 1 ? "s" : ""}</>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main Page ───────────────────────────────────────────────────────────── */
 export default function StudentsPage() {
   const { user, loading: userLoading } = useCurrentUser();
@@ -213,6 +380,7 @@ export default function StudentsPage() {
   const [sortBy, setSortBy] = useState<"name"|"xp">("name");
   const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const [moveTarget, setMoveTarget] = useState<StudentRow | null>(null);
   const [selected, setSelected] = useState<StudentRow | null>(null);
 
@@ -226,7 +394,7 @@ export default function StudentsPage() {
     try {
       const [classesRes, studentsRes] = await Promise.all([
         supabase.from("classes").select("id, name, section").eq("school_id", schoolId).order("name"),
-        supabase.from("students").select("id, user_id, users(name, email)").eq("school_id", schoolId),
+        supabase.from("students").select("id, user_id, users!students_user_id_fkey(name, email)").eq("school_id", schoolId),
       ]);
       setClasses(classesRes.data ?? []);
       const rawStudents = studentsRes.data ?? [];
@@ -293,6 +461,13 @@ export default function StudentsPage() {
         classes={classes}
         onCreated={s => setStudents(prev => [s, ...prev])}
       />
+      <BulkImportModal
+        isOpen={showBulkImport}
+        onClose={() => setShowBulkImport(false)}
+        schoolId={user?.schoolId ?? ""}
+        classes={classes}
+        onComplete={fetchData}
+      />
       <MoveClassModal
         isOpen={!!moveTarget}
         onClose={() => setMoveTarget(null)}
@@ -307,7 +482,7 @@ export default function StudentsPage() {
         actions={
           <div className="flex gap-2">
             <Button variant="primary" onClick={() => setShowAddModal(true)}>+ Add Student</Button>
-            <Button variant="ghost" onClick={() => toast("CSV import coming soon")}>Bulk Import</Button>
+            <Button variant="ghost" onClick={() => setShowBulkImport(true)}><Upload size={14}/> Bulk Import</Button>
           </div>
         }
       />

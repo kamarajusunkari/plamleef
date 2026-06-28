@@ -127,10 +127,7 @@ function AddTeacherModal({ isOpen, onClose, schoolId, subjects, classes, onCreat
             school_id: schoolId,
           }))
         );
-        const { error: csErr } = await supabase.from("class_subjects").upsert(rows, {
-          onConflict: "class_id,subject_id",
-          ignoreDuplicates: false,
-        });
+        const { error: csErr } = await supabase.from("class_subjects").insert(rows);
         if (csErr) {
           toast.error("Teacher created but failed to assign subjects: " + csErr.message);
         }
@@ -308,13 +305,30 @@ function TeacherDetailPanel({ teacher, allClasses, allSubjects, schoolId, onRefr
     setSaving(true);
     try {
       const supabase = createClient();
-      const { error } = await supabase.from("class_subjects").upsert({
-        class_id: newClassId,
-        subject_id: newSubjectId,
-        teacher_id: teacher.id,
-        school_id: schoolId,
-      }, { onConflict: "class_id,subject_id" });
-      if (error) { toast.error(error.message); } else {
+      const { data: existing } = await supabase
+        .from("class_subjects")
+        .select("id")
+        .eq("class_id", newClassId)
+        .eq("subject_id", newSubjectId)
+        .maybeSingle();
+
+      let result;
+      if (existing) {
+        result = await supabase
+          .from("class_subjects")
+          .update({ teacher_id: teacher.id })
+          .eq("id", existing.id);
+      } else {
+        result = await supabase
+          .from("class_subjects")
+          .insert({
+            class_id: newClassId,
+            subject_id: newSubjectId,
+            teacher_id: teacher.id,
+            school_id: schoolId,
+          });
+      }
+      if (result.error) { toast.error(result.error.message); } else {
         toast.success("Assignment added");
         setNewClassId(""); setNewSubjectId("");
         setAssigning(false);

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
-  Users, ClipboardList, HelpCircle, BookOpen, Cpu, Zap,
+  Users, ClipboardList, HelpCircle, BookOpen, Cpu, Zap, Bell,
   Clock, ChevronRight, Play, CheckCircle, Star, CalendarDays,
   GraduationCap, Shield, ArrowRight,
 } from "lucide-react";
@@ -240,11 +240,12 @@ export default function TeacherDashboard() {
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [doubts, setDoubts] = useState<DoubtRow[]>([]);
+  const [announcements, setAnnouncements] = useState<{ id: string; title: string; content: string; audience: string; created_at: string }[]>([]);
   const [stats, setStats] = useState({ quizzesThisWeek: 0, openDoubts: 0, classCount: 0, totalStudents: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user?.teacherId) return;
+    if (!user?.teacherId || !user?.schoolId) return;
     const supabase = createClient();
     const teacherId = user.teacherId;
 
@@ -332,6 +333,20 @@ export default function TeacherDashboard() {
           };
         }));
       }
+
+      // Announcements
+      const { data: announcementData } = await supabase
+        .from("announcements")
+        .select("id, title, content, audience, created_at")
+        .eq("school_id", user!.schoolId!)
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      const annData = (announcementData ?? []).map((a: any) => ({
+        ...a,
+        audience: Array.isArray(a.audience) ? a.audience[0] : a.audience,
+      }));
+      setAnnouncements(annData);
 
       // Stats
       const [{ count: quizCount }, { count: doubtCount }] = await Promise.all([
@@ -521,27 +536,39 @@ export default function TeacherDashboard() {
         </div>
       </div>
 
-      {/* AI usage */}
-      <div className="bg-white rounded-2xl p-5 border border-[#E8EDF5]">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Cpu size={16} className="text-[#8B5CF6]" />
-            <span className="text-sm font-semibold text-[#1A2035]">AI Quizzes This Week</span>
+      {/* Announcements */}
+      {announcements.length > 0 && (
+        <div className="bg-white rounded-2xl p-5 border border-[#E8EDF5]">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Bell size={16} className="text-[#FF6B35]" />
+              <span className="text-sm font-semibold text-[#1A2035]">Announcements</span>
+            </div>
+            <Link href="/teacher/announcements" className="text-xs text-[#FF6B35] hover:underline">View all</Link>
           </div>
-          <span className="text-xs text-[#7A869A]">{stats.quizzesThisWeek} created</span>
+          <div className="space-y-3">
+            {announcements.map((ann) => (
+              <div key={ann.id} className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl bg-[#FFF7F4] flex items-center justify-center shrink-0">
+                  <Bell size={14} className="text-[#FF6B35]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold text-[#1A2035] truncate">{ann.title}</div>
+                  <div className="text-[10px] text-[#7A869A] line-clamp-1">{ann.content}</div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[10px] text-[#94A3B8]">
+                      {new Date(ann.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                    </span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-[#EFF6FF] text-[#3B82F6]">
+                      {ann.audience === "ALL" ? "All" : ann.audience.charAt(0) + ann.audience.slice(1).toLowerCase()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="h-2 bg-[#F0F4FA] rounded-full overflow-hidden">
-          <div className="h-full rounded-full bg-[#8B5CF6] transition-[width] duration-700" style={{ width: `${Math.min((stats.quizzesThisWeek / 10) * 100, 100)}%` }} />
-        </div>
-        <div className="flex items-center justify-between mt-2">
-          <span className="text-xs text-[#7A869A]">
-            {stats.quizzesThisWeek === 0 ? "No quizzes yet this week" : `${stats.quizzesThisWeek} quiz${stats.quizzesThisWeek > 1 ? "zes" : ""} this week`}
-          </span>
-          <Link href="/teacher/quizzes" className="text-xs text-[#8B5CF6] font-semibold hover:underline flex items-center gap-1">
-            <Star size={10} /> Generate AI Quiz
-          </Link>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

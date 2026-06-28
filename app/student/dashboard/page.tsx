@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { Swords, BookOpen, Trophy, Zap, Star, CheckCircle, Clock, TrendingUp, Play } from "lucide-react";
+import { Swords, BookOpen, Trophy, Zap, Star, CheckCircle, Clock, TrendingUp, Play, Bell } from "lucide-react";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { createClient } from "@/lib/supabase/client";
 
@@ -67,6 +67,7 @@ export default function StudentDashboard() {
   const [subjects, setSubjects] = useState<SubjectRow[]>([]);
   const [rank, setRank] = useState<number | null>(null);
   const [doubtsCount, setDoubtsCount] = useState(0);
+  const [announcements, setAnnouncements] = useState<{ id: string; title: string; content: string; audience: string; created_at: string }[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
 
   const xp = user?.totalXp ?? 0;
@@ -90,17 +91,17 @@ export default function StudentDashboard() {
 
   // Fetch dashboard data
   useEffect(() => {
-    if (!user?.studentRecordId || !user?.classId) return;
+    if (!user?.studentRecordId || !user?.classId || !user?.schoolId) return;
 
     let cancelled = false;
 
     async function fetchData() {
-      if (!user?.studentRecordId || !user?.classId) return;
+      if (!user?.studentRecordId || !user?.classId || !user?.schoolId) return;
       setDataLoading(true);
       const supabase = createClient();
 
       // Run queries in parallel
-      const [assignmentsRes, leaderboardRes, xpLogsRes, subjectsRes, rankRes, doubtsRes] = await Promise.all([
+      const [assignmentsRes, leaderboardRes, xpLogsRes, subjectsRes, rankRes, doubtsRes, announcementsRes] = await Promise.all([
         // Assignments for class + attempts
         supabase
           .from("assignment")
@@ -163,6 +164,14 @@ export default function StudentDashboard() {
           .select("id", { count: "exact", head: true })
           .eq("student_records_id", user.studentRecordId)
           .eq("status", "OPEN"),
+
+        // Recent announcements
+        supabase
+          .from("announcements")
+          .select("id, title, content, audience, created_at")
+          .eq("school_id", user.schoolId)
+          .order("created_at", { ascending: false })
+          .limit(5),
       ]);
 
       if (cancelled) return;
@@ -256,6 +265,11 @@ export default function StudentDashboard() {
       setSubjects(mappedSubjects);
       setRank(rankRes.data?.rank ?? null);
       setDoubtsCount(doubtsRes.count ?? 0);
+      const annData = (announcementsRes.data ?? []).map((a: any) => ({
+        ...a,
+        audience: Array.isArray(a.audience) ? a.audience[0] : a.audience,
+      }));
+      setAnnouncements(annData);
       setDataLoading(false);
     }
 
@@ -533,6 +547,40 @@ export default function StudentDashboard() {
                 <Swords size={12} /> Game Zone
               </Link>
             </div>
+          </div>
+
+          {/* Announcements */}
+          <div className="bg-white rounded-2xl p-5 border border-[#E8EDF5]">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Bell size={14} className="text-[#FF6B35]" />
+                <span className="text-sm font-semibold text-[#1A2035]">Announcements</span>
+              </div>
+              <Link href="/student/announcements" className="text-xs text-[#FF6B35] hover:underline">View all</Link>
+            </div>
+            {announcements.length === 0 ? (
+              <div className="text-sm text-[#7A869A] text-center py-4">No announcements</div>
+            ) : (
+              <div className="space-y-2">
+                {announcements.map((ann) => (
+                  <div key={ann.id} className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-[#F8FAFC] transition-colors">
+                    <div className="w-7 h-7 rounded-lg bg-[#FFF7F4] flex items-center justify-center shrink-0">
+                      <Bell size={12} className="text-[#FF6B35]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-[#1A2035] truncate">{ann.title}</div>
+                      <div className="text-[10px] text-[#7A869A] line-clamp-1">{ann.content}</div>
+                      <div className="text-[10px] text-[#94A3B8] mt-0.5">
+                        {new Date(ann.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                      </div>
+                    </div>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium shrink-0 mt-0.5 bg-[#EFF6FF] text-[#3B82F6]">
+                      {ann.audience === "ALL" ? "All" : ann.audience.charAt(0) + ann.audience.slice(1).toLowerCase()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

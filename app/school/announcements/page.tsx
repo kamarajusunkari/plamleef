@@ -59,26 +59,23 @@ function AnnouncementsContent() {
     const supabase = createClient();
     const { data, error } = await supabase
       .from("announcements")
-      .select("id, title, content, audience, is_pinned, expires_at, created_at, users:created_by(name)")
+      .select("id, title, content, audience, is_pinned, expires_at, created_at")
       .eq("school_id", user!.schoolId!)
       .order("created_at", { ascending: false });
 
     if (!error && data) {
-      const mapped: Announcement[] = data.map((a: any) => {
-        const creatorObj = a.users ? (Array.isArray(a.users) ? a.users[0] : a.users) : null;
-        return {
-          id: a.id,
-          title: a.title,
-          content: a.content,
-          audience: a.audience,
-          isPinned: a.is_pinned ?? false,
-          targetClassId: null,
-          targetClassName: null,
-          createdAt: a.created_at,
-          expiresAt: a.expires_at ?? null,
-          createdBy: creatorObj?.name ?? "Unknown",
-        };
-      });
+      const mapped: Announcement[] = data.map((a: any) => ({
+        id: a.id,
+        title: a.title,
+        content: a.content,
+        audience: Array.isArray(a.audience) ? a.audience[0] : a.audience,
+        isPinned: a.is_pinned ?? false,
+        targetClassId: null,
+        targetClassName: null,
+        createdAt: a.created_at,
+        expiresAt: a.expires_at ?? null,
+        createdBy: "School Admin",
+      }));
       setAnnouncements(mapped);
     }
     setLoadingData(false);
@@ -120,7 +117,7 @@ function AnnouncementsContent() {
         .update({
           title: form.title,
           content: form.content,
-          audience: form.audience,
+          audience: [form.audience],
           is_pinned: form.isPinned,
           expires_at: form.expiresAt || null,
         })
@@ -141,7 +138,7 @@ function AnnouncementsContent() {
           created_by: user.id,
           title: form.title,
           content: form.content,
-          audience: form.audience,
+          audience: [form.audience],
           is_pinned: form.isPinned,
           expires_at: form.expiresAt || null,
         });

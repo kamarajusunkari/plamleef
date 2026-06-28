@@ -226,7 +226,7 @@ function AssignTeacherModal({ isOpen, onClose, cls, teachers, onAssigned }: Assi
       const chosen = teachers.find((t) => t.id === teacherId);
       const { error } = await supabase
         .from("classes")
-        .update({ class_teacher_id: chosen?.userId ?? null })
+        .update({ class_teacher_id: chosen?.id ?? null })
         .eq("id", cls.id);
 
       if (error) throw error;
@@ -292,19 +292,34 @@ function AssignSubjectModal({ isOpen, onClose, cls, schoolId, subjects, teachers
     try {
       const supabase = createClient();
       const chosenTeacher = teachers.find((t) => t.id === teacherId);
-      const { data, error } = await supabase
+      const { data: existing } = await supabase
         .from("class_subjects")
-        .upsert(
-          {
+        .select("id")
+        .eq("class_id", cls.id)
+        .eq("subject_id", subjectId)
+        .maybeSingle();
+
+      let result;
+      if (existing) {
+        result = await supabase
+          .from("class_subjects")
+          .update({ teacher_id: chosenTeacher?.id ?? null })
+          .eq("id", existing.id)
+          .select("id")
+          .single();
+      } else {
+        result = await supabase
+          .from("class_subjects")
+          .insert({
             class_id: cls.id,
             subject_id: subjectId,
             school_id: schoolId,
-            teacher_id: chosenTeacher?.userId ?? null,
-          },
-          { onConflict: "class_id,subject_id" }
-        )
-        .select("id")
-        .single();
+            teacher_id: chosenTeacher?.id ?? null,
+          })
+          .select("id")
+          .single();
+      }
+      const { data, error } = result;
 
       if (error) throw error;
 
@@ -399,6 +414,7 @@ function ClassDetailPanel({
   const [students, setStudents] = useState<{ id: string; name: string; email: string; xp: number }[]>([]);
   const [studentsLoading, setStudentsLoading] = useState(true);
   const [studentSearch, setStudentSearch] = useState("");
+  const [showAddStudentModal, setShowAddStudentModal] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -407,7 +423,7 @@ function ClassDetailPanel({
 
     supabase
       .from("student_records")
-      .select("id, student_id, students(user_id, users(name, email)), student_xp(total_xp)")
+      .select("id, student_id, students(user_id, users!students_user_id_fkey(name, email)), student_xp(total_xp)")
       .eq("class_id", cls.id)
       .eq("is_current", true)
       .then(({ data }) => {
@@ -536,7 +552,15 @@ function ClassDetailPanel({
               <h3 className="text-xs font-semibold text-[#7A869A] uppercase tracking-wider">
                 Students ({students.length})
               </h3>
-              <Link href="/school/students" className="text-xs text-[#FF6B35] hover:underline">Manage →</Link>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowAddStudentModal(true)}
+                  className="text-xs text-[#FF6B35] hover:underline flex items-center gap-1"
+                >
+                  <Plus size={11} /> Add
+                </button>
+                <Link href="/school/students" className="text-xs text-[#7A869A] hover:underline">Manage →</Link>
+              </div>
             </div>
 
             <div className="relative mb-3">
@@ -585,6 +609,22 @@ function ClassDetailPanel({
         </div>
       </div>
 
+      {showAddStudentModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowAddStudentModal(false)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
+            <AddStudentToClassForm
+              cls={cls}
+              schoolId={schoolId}
+              onClose={() => setShowAddStudentModal(false)}
+              onCreated={(s) => {
+                setStudents(prev => [...prev, s]);
+                setShowAddStudentModal(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       <AssignTeacherModal
         isOpen={showTeacherModal}
         onClose={() => setShowTeacherModal(false)}
@@ -602,6 +642,97 @@ function ClassDetailPanel({
         teachers={teachers}
         onAssigned={onSubjectAssigned}
       />
+    </>
+  );
+}
+
+// ─── AddStudentToClassForm — inline form inside modal ────────────────────────
+
+interface AddStudentToClassFormProps {
+  cls: ClassDetail;
+  schoolId: string;
+  onClose: () => void;
+  onCreated: (s: { id: string; name: string; email: string; xp: number }) => void;
+}
+
+function AddStudentToClassForm({ cls, schoolId, onClose, onCreated }: AddStudentToClassFormProps) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("Student@2025");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  const validate = () => {
+    const e: Record<string, string> = {};
+    if (!name.trim()) e.name = "Name is required";
+    if (!email.trim()) e.email = "Email is required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Invalid email";
+    if (!password.trim()) e.password = "Password is required";
+    return e;
+  };
+
+  const handleSave = async () => {
+    const e = validate();
+    if (Object.keys(e).length) { setErrors(e); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/create-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.toLowerCase().trim(), name: name.trim(), role: "STUDENT", schoolId, classId: cls.id, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to create student");
+
+      toast.success(`✓ ${name.trim()} added — password: ${password}`);
+      onCreated({
+        id: data.studentRecordId ?? data.studentId,
+        name: name.trim(),
+        email: email.toLowerCase().trim(),
+        xp: 0,
+      });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to add student");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-base font-bold text-[#1A2035]">Add Student to {cls.name}-{cls.section}</h2>
+        <button onClick={onClose} className="text-[#7A869A] hover:text-[#1A2035]"><X size={18} /></button>
+      </div>
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs font-semibold text-[#7A869A] block mb-1">Full Name *</label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Aarav Sharma"
+            className="w-full h-10 px-3 rounded-xl border border-[#E8EDF5] bg-[#F8FAFC] text-sm text-[#1A2035] outline-none focus:border-[#FF6B35]" />
+          {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-[#7A869A] block mb-1">Email *</label>
+          <input value={email} onChange={e => setEmail(e.target.value)} placeholder="student@school.com" type="email"
+            className="w-full h-10 px-3 rounded-xl border border-[#E8EDF5] bg-[#F8FAFC] text-sm text-[#1A2035] outline-none focus:border-[#FF6B35]" />
+          {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
+        </div>
+        <div className="p-3 bg-[#FFF7ED] rounded-xl">
+          <p className="text-xs text-[#FF6B35] font-medium">Class: {cls.name} — Section {cls.section}</p>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-[#7A869A] block mb-1">Password</label>
+          <input value={password} onChange={e => setPassword(e.target.value)} placeholder="Student@2025"
+            className="w-full h-10 px-3 rounded-xl border border-[#E8EDF5] bg-[#F8FAFC] text-sm text-[#1A2035] outline-none focus:border-[#FF6B35]" />
+          <p className="text-[10px] text-[#7A869A] mt-1">Student logs in with this email + password</p>
+        </div>
+      </div>
+      <div className="flex gap-2 mt-5">
+        <Button variant="ghost" className="flex-1" onClick={onClose} disabled={saving}>Cancel</Button>
+        <button onClick={handleSave} disabled={saving}
+          className="flex-1 flex items-center justify-center gap-2 py-2 bg-[#FF6B35] text-white rounded-xl text-sm font-bold hover:opacity-90 disabled:opacity-60">
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+          {saving ? "Creating…" : "Add Student"}
+        </button>
+      </div>
     </>
   );
 }

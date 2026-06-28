@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Layout, ClipboardList, BookOpen, FileText,
   MessageCircle, BarChart2, Settings, ChevronLeft, ChevronRight,
-  LogOut, Zap, HelpCircle, X, ShoppingBag, GraduationCap, Trophy,
+  LogOut, Zap, HelpCircle, Megaphone, X, ShoppingBag, GraduationCap, Trophy,
 } from "lucide-react";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { createClient } from "@/lib/supabase/client";
@@ -52,6 +52,7 @@ export function TeacherSidebar({ mobileOpen, onClose }: { mobileOpen: boolean; o
       { icon: FileText, label: "Resources", href: "/teacher/resources" },
     ]},
     { label: "ENGAGE", items: [
+      { icon: Megaphone, label: "Announcements", href: "/teacher/announcements" },
       { icon: HelpCircle, label: "Doubts", href: "/teacher/doubts", badge: openDoubtsCount, badgeColor: "#EF4444" },
       { icon: MessageCircle, label: "Messages", href: "/teacher/messages" },
       { icon: Trophy, label: "Tournaments", href: "/teacher/tournaments", badge: 0, badgeColor: "#F59E0B" },

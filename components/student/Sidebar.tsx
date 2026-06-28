@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, BookOpen, Swords, Trophy, Star, HelpCircle,
   Calendar, Settings, ChevronLeft, ChevronRight, LogOut, Zap, BarChart2,
-  Library, Layers, Bell, X, ShoppingBag, UserCheck, BookMarked,
+  Library, Layers, Bell, Megaphone, X, ShoppingBag, UserCheck, BookMarked,
 } from "lucide-react";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { createClient } from "@/lib/supabase/client";
@@ -27,6 +27,7 @@ const NAV = [
   { label: "MORE", items: [
     { icon: UserCheck, label: "Find Tutors", href: "/student/tutors" },
     { icon: HelpCircle, label: "Ask Doubt", href: "/student/doubts" },
+    { icon: Megaphone, label: "Announcements", href: "/student/announcements" },
     { icon: Calendar, label: "Attendance", href: "/student/attendance" },
     { icon: Bell, label: "Notifications", href: "/student/notifications" },
     { icon: Settings, label: "Settings", href: "/student/settings" },
