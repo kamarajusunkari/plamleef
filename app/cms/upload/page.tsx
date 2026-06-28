@@ -33,8 +33,8 @@ const BOARDS = ["CBSE","ICSE","IGCSE","State Board","IB","NIOS","Cambridge","Oth
 const LANGUAGES = ["English","Hindi","Telugu","Tamil","Kannada","Malayalam","Marathi","Bengali","Gujarati","Punjabi","Other"] as const;
 const SOURCES = ["PalmLeef","YouTube","Teacher Upload","School Upload","Government","Publisher","Open Educational Resources","External Website"] as const;
 const STATUSES = ["DRAFT","PUBLISHED","ARCHIVED"] as const;
-const GEMINI_API_KEY = "AIzaSyAUYOGSSmb0dodnN5cg0SWCxNf55JQG2Lo";
-const GEMINI_MODEL   = "gemini-2.5-flash-lite";
+const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+const GEMINI_MODEL   = process.env.NEXT_PUBLIC_GEMINI_MODEL ?? "gemini-2.5-flash-lite";
 
 function uid() { return Math.random().toString(36).slice(2,10); }
 function emptyCard(): FlashCard { return { id: uid(), front: "", back: "" }; }

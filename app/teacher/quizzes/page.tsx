@@ -12,8 +12,8 @@ import { createClient } from "@/lib/supabase/client";
 // ─────────────────────────────────────────────
 // Constants & Types
 // ─────────────────────────────────────────────
-const GEMINI_API_KEY = "AIzaSyAUYOGSSmb0dodnN5cg0SWCxNf55JQG2Lo";
-const GEMINI_MODEL   = "gemini-2.5-flash-lite";
+const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+const GEMINI_MODEL   = process.env.NEXT_PUBLIC_GEMINI_MODEL ?? "gemini-2.5-flash-lite";
 
 type Difficulty = "EASY" | "MEDIUM" | "HARD";
 type Tab        = "LIBRARY" | "EDUBATTLE" | "CREATE_MANUAL" | "CREATE_AI";
