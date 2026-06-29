@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useCurrentUser } from "@/lib/hooks/useCurrentUser";
 import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type Mode = "HOMEWORK" | "GAME" | "COMPETITION";
 type Step = 1 | 2 | 3 | 4;
@@ -102,6 +102,16 @@ export default function NewAssignmentPage() {
 
     fetchOptions();
   }, [user?.teacherId]);
+
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (quizzes.length === 0) return;
+    const quizId = searchParams.get("quizId");
+    if (!quizId) return;
+    const match = quizzes.find(q => q.id === quizId);
+    if (match) setSelectedQuiz(match);
+  }, [searchParams, quizzes]);
 
   const toggleClass = (id: string) =>
     setSelectedClasses(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);

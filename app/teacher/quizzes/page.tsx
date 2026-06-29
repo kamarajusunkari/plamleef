@@ -12,8 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 // ─────────────────────────────────────────────
 // Constants & Types
 // ─────────────────────────────────────────────
-const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-const GEMINI_MODEL   = process.env.NEXT_PUBLIC_GEMINI_MODEL ?? "gemini-2.5-flash-lite";
+const OPENAI_MODEL = process.env.NEXT_PUBLIC_OPENAI_MODEL ?? "mimo-v2.5-free";
 
 type Difficulty = "EASY" | "MEDIUM" | "HARD";
 type Tab        = "LIBRARY" | "EDUBATTLE" | "CREATE_MANUAL" | "CREATE_AI";
@@ -54,14 +53,31 @@ interface MCQQuestion {
   explanation: string;
 }
 
+function normalizeAnswer(answer: string, options: string[]): string {
+  const trimmed = answer.trim();
+  const key = trimmed.toUpperCase();
+  const optMatch = key.match(/^OPTION\s+([A-D])$/);
+  if (optMatch) return options[optMatch[1].charCodeAt(0) - 65];
+  const exact = options.find(o => o.trim() === trimmed);
+  if (exact) return exact;
+  const idx = key.charCodeAt(0) - 65;
+  if (idx >= 0 && idx < options.length && trimmed.length === 1) return options[idx];
+  const num = parseInt(trimmed, 10);
+  if (!isNaN(num) && num >= 0 && num < options.length) return options[num];
+  const ci = options.find(o => o.trim().toLowerCase() === trimmed.toLowerCase());
+  if (ci) return ci;
+  return trimmed;
+}
+
 // ─────────────────────────────────────────────
-// Gemini AI helper
+// AI helper (OpenAI-compatible)
 // ─────────────────────────────────────────────
-async function callGemini(params: {
+async function callAI(params: {
   subject: string; topic: string; grade: string;
   count: number;   difficulty: string;
 }): Promise<MCQQuestion[]> {
-  const prompt = `You are an expert Indian NCERT curriculum MCQ generator.
+  const prompt = `What even I ask, try to give concise and fast reply.
+You are an expert Indian NCERT curriculum MCQ generator.
 
 Generate EXACTLY ${params.count} multiple-choice questions for:
 Subject: ${params.subject}
@@ -86,27 +102,16 @@ JSON format:
   }
 ]`;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, topK: 40, topP: 0.95, maxOutputTokens: 8192 },
-      }),
-    }
-  );
-
+  const res = await fetch("/api/ai/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, temperature: 0.7, max_tokens: 8192 }),
+  });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
-    throw new Error(err?.error?.message ?? `Gemini API error ${res.status}`);
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err?.error ?? `AI API error ${res.status}`);
   }
-
-  const data = await res.json() as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  };
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const { content: text } = await res.json() as { content: string };
 
   const jsonMatch = text.match(/\[[\s\S]*\]/);
   if (!jsonMatch) throw new Error("AI returned an invalid response (no JSON array found).");
@@ -120,7 +125,7 @@ JSON format:
     id:          crypto.randomUUID(),
     question:    q.question,
     options:     q.options,
-    answer:      q.answer,
+    answer:      normalizeAnswer(q.answer, q.options),
     explanation: q.explanation ?? "",
   }));
 }
@@ -540,7 +545,7 @@ function QuizLibrary({ quizzes, loading }: { quizzes: QuizRow[]; loading: boolea
                 </div>
                 <div className="flex items-center justify-end">
                   <Link
-                    href="/teacher/assignments/new"
+                    href={`/teacher/assignments/new?quizId=${quiz.id}`}
                     className="flex items-center gap-1 px-3 py-1.5 bg-[#8B5CF6] text-white rounded-lg text-xs font-semibold hover:bg-[#7C3AED] transition-colors"
                   >
                     Assign <ChevronRight size={12} />
@@ -923,6 +928,7 @@ function AIQuizGenerator({
   const [quizTitle,    setQuizTitle]    = useState("");
   const [isGamezone,   setIsGamezone]   = useState(false);
   const [aiGameModes,  setAiGameModes]  = useState<string[]>(["speed-blitz","tug-of-war","challenge","practice","tournament"]);
+  const [aiSavedQuizId, setAiSavedQuizId] = useState<string | null>(null);
   function toggleAiMode(key: string) { setAiGameModes(p => p.includes(key) ? p.filter(m => m !== key) : [...p, key]); }
 
   const subjectName = subjects.find(s => s.id === subjectId)?.name ?? "Unknown";
@@ -945,7 +951,7 @@ function AIQuizGenerator({
     setAiStep(2);
 
     try {
-      const questions = await callGemini({ subject: subjectName, topic: topic.trim(), grade, count, difficulty });
+      const questions = await callAI({ subject: subjectName, topic: topic.trim(), grade, count, difficulty });
       setGenQs(questions);
       setQuizTitle(`${subjectName} — ${topic.trim()} (Grade ${grade})`);
       setProgress(100);
@@ -1001,6 +1007,7 @@ function AIQuizGenerator({
       const { error: qqErr } = await supabase.from("question").insert(rows);
       if (qqErr) throw qqErr;
 
+      setAiSavedQuizId(quiz.id);
       toast.success("AI quiz saved!");
       setAiStep(4);
       onCreated();
@@ -1041,7 +1048,7 @@ function AIQuizGenerator({
             <h2 className="text-base font-bold text-[#1A2035]">AI Quiz Generator</h2>
           </div>
           <p className="text-xs text-[#6D28D9]">
-            Powered by Gemini · {GEMINI_MODEL} · NCERT curriculum aligned
+            Powered by AI · {OPENAI_MODEL} · NCERT curriculum aligned
           </p>
         </div>
 
@@ -1161,7 +1168,7 @@ function AIQuizGenerator({
                   <Sparkles size={16} className="text-[#8B5CF6]" />
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-[#6D28D9] mb-0.5">Gemini AI · {GEMINI_MODEL}</p>
+                  <p className="text-xs font-semibold text-[#6D28D9] mb-0.5">AI · {OPENAI_MODEL}</p>
                   <p className="text-xs text-[#7C3AED]">
                     Generates NCERT-aligned MCQs with explanations. Each question includes 4 options and the correct answer.
                   </p>
@@ -1195,7 +1202,7 @@ function AIQuizGenerator({
                   Generating {count} questions…
                 </div>
                 <p className="text-xs text-[#7A869A] max-w-xs">
-                  Gemini is analyzing NCERT curriculum for <strong className="text-[#1A2035]">{topic}</strong> (Grade {grade})
+                  AI is analyzing NCERT curriculum for <strong className="text-[#1A2035]">{topic}</strong> (Grade {grade})
                 </p>
               </div>
               <div className="w-64">
@@ -1363,7 +1370,7 @@ function AIQuizGenerator({
                   Create Another
                 </button>
                 <Link
-                  href="/teacher/assignments/new"
+                  href={`/teacher/assignments/new?quizId=${aiSavedQuizId}`}
                   className="flex items-center gap-2 px-6 py-2 bg-[#8B5CF6] text-white rounded-xl text-sm font-semibold hover:bg-[#7C3AED] transition-colors"
                 >
                   <Zap size={14} /> Assign to Class
@@ -1371,7 +1378,6 @@ function AIQuizGenerator({
               </div>
             </div>
           )}
-
         </div>
       </div>
     </>

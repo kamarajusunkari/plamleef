@@ -33,8 +33,7 @@ const BOARDS = ["CBSE","ICSE","IGCSE","State Board","IB","NIOS","Cambridge","Oth
 const LANGUAGES = ["English","Hindi","Telugu","Tamil","Kannada","Malayalam","Marathi","Bengali","Gujarati","Punjabi","Other"] as const;
 const SOURCES = ["PalmLeef","YouTube","Teacher Upload","School Upload","Government","Publisher","Open Educational Resources","External Website"] as const;
 const STATUSES = ["DRAFT","PUBLISHED","ARCHIVED"] as const;
-const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-const GEMINI_MODEL   = process.env.NEXT_PUBLIC_GEMINI_MODEL ?? "gemini-2.5-flash-lite";
+const OPENAI_MODEL = process.env.NEXT_PUBLIC_OPENAI_MODEL ?? "mimo-v2.5-free";
 
 function uid() { return Math.random().toString(36).slice(2,10); }
 function emptyCard(): FlashCard { return { id: uid(), front: "", back: "" }; }
@@ -47,32 +46,48 @@ const TABS: { key: ContentType; label: string; icon: React.ReactNode; color: str
   { key:"QUIZ",      label:"Quiz",       icon:<BookOpen size={16}/>,  color:"#FF6B35", bg:"#FFF7F4" },
 ];
 
-/* ─── Gemini AI helper ───────────────────────────────────────────────────── */
-async function callGeminiForQuiz(topic: string, subject: string, count: number): Promise<QuizDraft[]> {
-  const prompt = `Generate exactly ${count} multiple-choice quiz questions about "${topic}" for the subject "${subject}".
+function normalizeCorrect(val: string, _opts: string[]): number {
+  const trimmed = val.trim();
+  const key = trimmed.toUpperCase();
+  const optMatch = key.match(/^OPTION\s+([A-D])$/);
+  if (optMatch) return optMatch[1].charCodeAt(0) - 65;
+  const idx = key.charCodeAt(0) - 65;
+  if (idx >= 0 && idx < 4 && trimmed.length === 1) return idx;
+  const num = parseInt(trimmed, 10);
+  if (!isNaN(num) && num >= 0 && num < 4) return num;
+  const found = _opts.findIndex(o => o.trim().toLowerCase() === trimmed.toLowerCase());
+  return found >= 0 ? found : 0;
+}
+
+/* ─── AI helper (OpenAI-compatible) ──────────────────────────────────────── */
+async function callAIForQuiz(topic: string, subject: string, count: number): Promise<QuizDraft[]> {
+  const prompt = `What even I ask, try to give concise and fast reply.
+Generate exactly ${count} multiple-choice quiz questions about "${topic}" for the subject "${subject}".
 Return a JSON array only (no markdown, no extra text) with this exact schema:
 [{"text":"Question text","opt1":"Option A","opt2":"Option B","opt3":"Option C","opt4":"Option D","correct":0,"explanation":"Why the correct answer is right"}]
 "correct" is the 0-based index of the correct option (0=opt1, 1=opt2, 2=opt3, 3=opt4).
 Make questions educational, clear, and NCERT-aligned.`;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
-      }),
-    }
-  );
-  if (!res.ok) throw new Error(`Gemini error: ${res.status}`);
-  const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const res = await fetch("/api/ai/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, temperature: 0.7, max_tokens: 4096 }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err?.error ?? `AI API error ${res.status}`);
+  }
+  const { content: raw } = await res.json() as { content: string };
   const match = raw.match(/\[[\s\S]*\]/);
-  if (!match) throw new Error("No JSON array in Gemini response");
-  const parsed = JSON.parse(match[0]);
-  return parsed.map((q: Omit<QuizDraft,"id">) => ({ ...q, id: uid() }));
+  if (!match) throw new Error("No JSON array in AI response");
+  const parsed = JSON.parse(match[0]) as (Omit<QuizDraft,"id">)[];
+  return parsed.map(q => {
+    const opts = [q.opt1, q.opt2, q.opt3, q.opt4];
+    const normalized = typeof q.correct === "string"
+      ? normalizeCorrect(q.correct as string, opts)
+      : q.correct;
+    return { ...q, id: uid(), correct: normalized };
+  });
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -729,17 +744,17 @@ export default function CmsUploadPage() {
     finally { setSaving(false); }
   }
 
-  /* Real Gemini AI generation */
+  /* Real AI generation */
   async function generateAiQuestions() {
     if (!aiTopic.trim()) { toast.error("Enter a topic first"); return; }
     const subName = subjects.find(s => s.id === subjectId)?.name ?? "General";
     setAiGenerating(true);
     try {
-      const generated = await callGeminiForQuiz(aiTopic.trim(), subName, aiCount);
+      const generated = await callAIForQuiz(aiTopic.trim(), subName, aiCount);
       setQuestions(generated);
       if (!title.trim()) setTitle(`${aiTopic} — ${subName} Quiz`);
       if (!topic.trim()) setTopic(aiTopic.trim());
-      toast.success(`✓ ${generated.length} questions generated by Gemini AI`);
+      toast.success(`✓ ${generated.length} questions generated by AI`);
     } catch(e: unknown) {
       toast.error(e instanceof Error ? e.message : "AI generation failed");
     } finally {
@@ -976,8 +991,8 @@ export default function CmsUploadPage() {
           <div className="bg-gradient-to-r from-[#FF6B35] to-[#FFB347] rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <Sparkles size={16} className="text-white"/>
-              <span className="text-sm font-bold text-white">Gemini AI Generator</span>
-              <span className="text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-semibold ml-auto">gemini-2.5-flash-lite</span>
+              <span className="text-sm font-bold text-white">AI Generator</span>
+              <span className="text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-semibold ml-auto">{OPENAI_MODEL}</span>
             </div>
             <div className="flex gap-2">
               <input
